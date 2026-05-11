@@ -5,7 +5,8 @@ updated: 2026-05-11
 source: llm-wiki
 indexed: 2026-05-11
 url:
-source-type: note
+source-type: text
+source-genre: design-doc
 ---
 
 # LLM Wiki — A pattern for building personal knowledge bases using LLMs

@@ -151,6 +151,28 @@ The reference design is `/Users/user/code/wiki/llm-wiki.md`. This PRD instantiat
 - [ ] Validate by running `python3 scripts/lint-wikilinks.py wiki/` on the current wiki: zero findings in both categories, no overlap.
 - [ ] Commit with message starting `US-011`
 
+### US-012: Schema refinements (US-008 follow-ups #2, #3, #4)
+
+**Description:** As Claude Code maintaining the wiki, I want the source-type vocabulary, index-summary derivation rule, and ingest step-3 pause behavior to be unambiguous so I produce consistent output across sessions without re-deriving conventions.
+
+**Acceptance Criteria:**
+
+- [ ] **`source-type` split into two fields.** `source-type` becomes the broad structural kind: `text | pdf | transcript | image | other`. New `source-genre` field carries the editorial label, free-form, with CLAUDE.md listing common values (e.g. `article | essay | paper | book | design-doc | spec | note | talk | podcast-transcript | video-transcript | social-post | other`). Both fields appear in `raw/info/<basename>.info.md` and source-summary page frontmatter.
+- [ ] **CLAUDE.md > Source sidecars** frontmatter spec updated to show the two-field model and explain the broad-vs-editorial split.
+- [ ] **CLAUDE.md > Page types > source-summary** frontmatter spec and worked example updated: the example now uses `source-type: text` + `source-genre: design-doc` instead of the legacy `source-type: note`.
+- [ ] **Index-summary derivation rule documented per page type.** Each page type's spec in CLAUDE.md > Page types names the section whose first sentence becomes the index entry's summary:
+  - source-summary → Abstract
+  - entity → Summary
+  - concept → Definition
+  - comparison → Tradeoffs
+  - overview → Scope
+  ~120-character budget. Abridgement allowed; substantive paraphrasing avoided.
+- [ ] **`wiki/index.md` HTML comment** updated: replace the vague "first meaningful sentence" with the per-type rule (or a pointer to CLAUDE.md > Page types).
+- [ ] **Ingest workflow step 3** annotated so the canonical-pause intent is unambiguous: the pause is the default; non-interactive batch runs only happen when the user explicitly directs them. The US-008 validation skip was a one-off at user direction, not a workflow mode.
+- [ ] **Existing data migrated:** `raw/info/llm-wiki.info.md` and `wiki/sources/llm-wiki.md` updated to the two-field model.
+- [ ] **Lint clean after changes:** `python3 scripts/lint-wikilinks.py wiki/` produces 0 findings (no regressions from frontmatter edits).
+- [ ] Commit with message starting `US-012`
+
 ## 4. Functional Requirements
 
 - FR-1: Repo root contains `CLAUDE.md`, `README.md`, `.gitignore`, `raw/`, `raw/info/`, `wiki/`, `tasks/`, `.claude/commands/`.
@@ -170,6 +192,9 @@ The reference design is `/Users/user/code/wiki/llm-wiki.md`. This PRD instantiat
 - FR-15: The LLM offers to file an answer as a new wiki page when any of these triggers fire: (a) the answer cites ≥2 wiki pages, (b) the answer introduces a new comparison or synthesis, or (c) the answer is multi-paragraph and addresses a non-trivial query. Filing requires user confirmation.
 - FR-16: Default `lint` covers: contradictions, freshness conflicts (date-tagged citations on the same claim where a newer source overrides an older one), orphan pages, missing pages, missing cross-references, frontmatter validity, broken `[[wikilinks]]`, and missing source sidecars. Broken-wikilinks and missing-pages findings are **disjoint** (per-target dedup — see FR-17). When invoked as `lint with staleness`, it additionally flags pages whose `updated:` is more than 6 months old.
 - FR-17: `scripts/lint-wikilinks.py` parses wikilinks under `wiki/` while skipping HTML comments, fenced code blocks, and inline code spans. Classifies each target as `resolved` / `broken` / `missing-page` (disjoint categories). The lint workflow uses this script for the broken-wikilinks and missing-pages checks.
+- FR-18: Source sidecars (`raw/info/<basename>.info.md`) and source-summary pages carry two structured fields describing the source: `source-type` (closed enum, broad/structural — `text | pdf | transcript | image | other`) and `source-genre` (free-form editorial label, with CLAUDE.md listing common values like `article | essay | paper | book | design-doc | spec | note | talk | podcast-transcript | video-transcript | social-post | other`).
+- FR-19: Each page type's index entry derives its one-line summary from a specific section of the page, ~120 chars max: source-summary → Abstract, entity → Summary, concept → Definition, comparison → Tradeoffs, overview → Scope. Abridgement of the section's first sentence is allowed; substantive paraphrasing is not.
+- FR-20: The ingest workflow's step 3 ("discuss key takeaways with the user") is interactive by default — the LLM produces takeaways and waits for the user's reaction before continuing. Non-interactive batch runs happen only when the user explicitly directs them in the session.
 
 ## 5. Non-Goals (Out of Scope for v1)
 
@@ -229,3 +254,9 @@ The following decisions were made during PRD planning and are baked into the FRs
 - **Lint tooling vs. inline grep:** US-010 introduces `scripts/lint-wikilinks.py`. Reason: the inline `grep -rohE '\[\[…'` recipe produced false positives on `[[slug]]`/`[[page-1]]`/`[[wikilink]]` placeholders inside the HTML conventions comments in `wiki/index.md` and `wiki/log.md`. Python script makes the parser deterministic and testable. Other lint checks (contradictions, freshness, orphans, etc.) remain inline; tooling added only where parsing rigor matters.
 - **Per-target dedup for broken vs. missing-page:** a wikilink target that's both broken AND mentioned in a source-summary's Entities/Concepts section classifies as `missing-page` and suppresses the `broken` finding(s) for that same target. The single action ("create the page") resolves both; reporting both is redundant noise.
 - **Scope deliberately limited to US-008 follow-ups #1 and #5.** The other three follow-ups (validation-mode pause for ingest step 3, `source-type` vocabulary, index-summary rule wording) are deferred — they're interaction/style refinements that benefit from real-use feedback before being pinned down.
+
+### Added in US-012 round (remaining US-008 follow-ups)
+
+- **`source-type` vs `source-genre` split:** kept the `source-type` field but narrowed it to broad structural kinds (text/pdf/transcript/image/other) and added a new free-form `source-genre` for the editorial label (article/spec/design-doc/etc.). Two fields rather than one extended enum so machine-checking the structural kind doesn't constrain the editorial vocabulary. Existing data migrated.
+- **Index-summary rule documented per page type.** Section name is named explicitly per type rather than left as judgment: Abstract / Summary / Definition / Tradeoffs / Scope. ~120-char budget; first sentence of the named section is the canonical source. Abridgement OK; substantive paraphrasing avoided.
+- **Ingest step-3 pause stays canonical.** The US-008 validation skip was a one-off at the user's explicit direction, not a workflow mode. CLAUDE.md now makes this unambiguous so non-interactive batch ingests don't become an implicit default.

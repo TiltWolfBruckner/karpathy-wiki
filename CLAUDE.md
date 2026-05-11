@@ -50,12 +50,18 @@ For every original at `raw/<basename>.<ext>` (excluding anything under `raw/info
 ---
 title: <human title from the source if available>
 url: <original URL if applicable>
-source-type: article | pdf | note | transcript | other
+source-type: text | pdf | transcript | image | other   # broad structural kind
+source-genre: <editorial label>                        # see suggested values below
 created: YYYY-MM-DD   # source's publication date if known; otherwise same as `indexed`
 indexed: YYYY-MM-DD   # date the LLM first read this source
 updated: YYYY-MM-DD   # date this sidecar was last written
 ---
 ```
+
+The `source-type` / `source-genre` split is intentional:
+
+- **`source-type`** is the broad structural kind (closed enum). It tells the workflow how to read the source — `text`/markdown is read directly, `pdf` needs the Read tool's `pages` parameter, `transcript` means the text is derived from audio/video, `image` is image-only material, `other` is the escape hatch. Allowed values: `text | pdf | transcript | image | other`.
+- **`source-genre`** is the editorial label (free-form, with suggestions). It tells the human what kind of *content* this is. Common values: `article | essay | paper | book | design-doc | spec | note | talk | podcast-transcript | video-transcript | social-post | other`. Free-form so unusual sources (e.g. `lab-notebook-entry`, `legal-memo`) aren't forced into `other` — but prefer a listed value when it fits.
 
 The body of the `.info.md` is intentionally blank by default — the human-facing summary lives in `wiki/sources/<slug>.md`, not here. The sidecar exists so the citation, index, and lint workflows have stable per-source metadata to read without re-parsing the source.
 
@@ -121,7 +127,7 @@ sources:
 - `updated`: ISO 8601 date this page was last meaningfully edited. Bump on content changes; do not bump for whitespace or formatting.
 - `sources`: list of source-summary slugs that contributed to this page. **For navigation and lint — not for freshness.** Freshness lives in the inline date-tagged citations (see "Cross-references").
 
-Source-summary pages (`wiki/sources/<slug>.md`) carry additional fields (`indexed`, `url`, `source-type`) mirroring their sidecar. The full template is defined in "Page types" (US-003).
+Source-summary pages (`wiki/sources/<slug>.md`) carry additional fields (`indexed`, `url`, `source-type`, `source-genre`) mirroring their sidecar. The full template is defined in "Page types".
 
 Pages with missing or malformed frontmatter will be flagged by `lint`.
 
@@ -175,7 +181,8 @@ updated: YYYY-MM-DD       # bump on meaningful edits
 source: <raw-basename>    # filename in raw/ without extension
 indexed: YYYY-MM-DD       # mirror of sidecar's `indexed`
 url: <if applicable>      # mirror of sidecar's `url`
-source-type: article | pdf | note | transcript | other
+source-type: text | pdf | transcript | image | other   # mirror of sidecar's `source-type`
+source-genre: <editorial label>                        # mirror of sidecar's `source-genre`
 ---
 ```
 
@@ -188,6 +195,8 @@ source-type: article | pdf | note | transcript | other
 6. **Concepts** — bulleted list of `[[concept-slug]]` wikilinks for concepts the source covers
 7. **Notes** — optional: caveats, unresolved questions, things that don't fit above
 
+**Index summary** derives from the **Abstract** section: one line (~120 chars), first sentence of Abstract; abridge if needed but don't substantively paraphrase.
+
 **Worked example:**
 
 ```markdown
@@ -198,7 +207,8 @@ updated: 2026-05-10
 source: llm-wiki
 indexed: 2026-05-10
 url:
-source-type: note
+source-type: text
+source-genre: design-doc
 ---
 
 # LLM Wiki — A pattern for building personal knowledge bases using LLMs
@@ -266,6 +276,8 @@ aliases: [<other names this entity goes by>]   # optional
 4. **Related** — `[[wikilinks]]` to related entities and concepts, organized as **Entities:** / **Concepts:** sub-bullets
 5. **Sources** — date-tagged citations `[[source-slug|YYYY-MM-DD]]`, one per supporting source
 
+**Index summary** derives from the **Summary** section: one line (~120 chars), first sentence; abridge if needed.
+
 **Worked example:**
 
 ```markdown
@@ -331,6 +343,8 @@ sources:
 3. **Why it matters** — 1 paragraph on the concept's significance / where it appears
 4. **Related** — `[[wikilinks]]` (Entities / Concepts sub-bullets)
 5. **Sources** — date-tagged citations
+
+**Index summary** derives from the **Definition** section: one line (~120 chars), first sentence; abridge if needed.
 
 **Worked example:**
 
@@ -400,6 +414,8 @@ compares:
 3. **Comparison** — markdown table with axes as rows and the things as columns. If a table doesn't fit, use one `### <axis>` heading per axis with prose underneath.
 4. **Tradeoffs** — 1–2 paragraphs on when to prefer which
 5. **Sources** — date-tagged citations
+
+**Index summary** derives from the **Tradeoffs** section: one line (~120 chars), first sentence of Tradeoffs; abridge if needed.
 
 **Worked example:**
 
@@ -472,6 +488,8 @@ covers:
 4. **Open questions** — bulleted list of things the wiki doesn't yet answer about this topic
 5. **Sources** — date-tagged citations
 
+**Index summary** derives from the **Scope** section: one line (~120 chars), first sentence; abridge if needed.
+
 **Worked example:**
 
 ```markdown
@@ -538,7 +556,7 @@ Triggered by either `/ingest <path>` (the slash command in `.claude/commands/ing
    - Re-ingest: bump `updated` to today. Touch other fields only if the source itself changed.
    - **For PDFs**, also write `raw/info/<basename>.text.md` containing the extracted text (first ingest only, unless the PDF was replaced). All subsequent reads and `grep` target this `.text.md`, not the PDF.
 
-3. **Discuss key takeaways with the user.** Before writing anything under `wiki/`, summarize what you read in 3–6 bullets: the source's main claims, what entities/concepts it covers, any surprises or contradictions with existing wiki pages. Wait for the user's reaction — they may want to emphasize, deemphasize, or skip parts.
+3. **Discuss key takeaways with the user.** Before writing anything under `wiki/`, summarize what you read in 3–6 bullets: the source's main claims, what entities/concepts it covers, any surprises or contradictions with existing wiki pages. **Wait for the user's reaction — the pause is canonical, not optional.** They may want to emphasize, deemphasize, or skip parts. Non-interactive batch runs only happen when the user has explicitly directed them in the session (e.g. the US-008 validation skip was a one-off at user direction, not a workflow mode).
 
 4. **Write the source-summary page** at `wiki/sources/<slug>.md`, where `<slug>` matches the source basename. Follow the template in "Page types > source-summary" — required sections are title, citation, abstract, key claims, entities, concepts, optional notes; frontmatter uses `source:` (singular) plus `indexed`, `url`, `source-type`.
 

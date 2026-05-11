@@ -11,7 +11,13 @@
     ## Overviews     (wiki/overviews/)
 - Within each section: alphabetical by slug.
 - Entry format:  - [[slug]] — one-line summary
-- Summary = first meaningful sentence of the page (typically the Definition/Summary/Abstract section), trimmed to fit one line.
+- Summary = one line (~120 chars), derived from a page-type-specific section:
+    Abstract     (source-summary)
+    Summary      (entity)
+    Definition   (concept)
+    Tradeoffs    (comparison)
+    Scope        (overview)
+  First sentence of the named section; abridge if needed; don't substantively paraphrase. See CLAUDE.md > Page types for the full per-type rule.
 - Update on every ingest and on every query that files a new page.
 - Sections may be empty; never delete the section header.
 - See CLAUDE.md > Page types for what each type is.
