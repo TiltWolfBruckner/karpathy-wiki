@@ -642,8 +642,125 @@ If the wiki has nothing relevant:
 2. **Suggest sources to ingest.** Concrete: "Nothing in the wiki on [topic]. To answer this from the wiki, it would need a source on X, Y, or Z — drop one in `raw/` and re-ask, or share what you have."
 3. **Optionally answer from general knowledge** with an explicit `(not in wiki)` caveat so the user can choose to ingest a source and re-ask if they want the answer filed.
 
-## Sections under construction
+## Lint workflow
 
-Added in subsequent user stories — until they exist, ask the user before doing the corresponding operation:
+Triggered by natural-language request: "lint the wiki", "run a lint pass", "check the wiki for issues". For the opt-in staleness check, the user invokes "lint with staleness" or "lint and check for old pages".
 
-- **Lint workflow** (US-006) — health checks and the freshness-conflict detector.
+**Lint never modifies files on its own.** It surfaces findings and proposed fixes; the user confirms what to apply.
+
+### Default checks
+
+Run all of these and produce one report section per check (even if empty — empty sections confirm the check ran).
+
+1. **Contradictions between pages.** Pages that make incompatible claims about the same entity/concept. Detect by reading related pages (use the index plus cross-references); flag when claims about the same thing diverge.
+
+2. **Freshness conflicts.** Wiki pages where a date-tagged citation `[[old-source|YYYY-MM-DD]]` is contradicted by a newer date-tagged citation on the same claim — either elsewhere on the same page, or on a related page. The dates make this detectable without parsing prose. Flag the page, both sources, and the date delta.
+
+3. **Orphan pages.** Wiki pages with no inbound `[[wikilinks]]`. Detect by enumerating all page slugs, then `grep`-ing the rest of the wiki for each. Source-summary pages are partially exempt (often only linked from a single entity/concept page) but should be flagged when no entity/concept references them at all.
+
+4. **Missing pages — important concepts/entities mentioned but unwritten.** Walk source-summary pages: for each `[[entity-slug]]` or `[[concept-slug]]` in Entities/Concepts sections, check whether the corresponding `wiki/entities/<slug>.md` or `wiki/concepts/<slug>.md` exists. Flag the missing ones — they're wiki-implied but unwritten.
+
+5. **Missing cross-references.** Pages that mention a known entity/concept in prose without `[[wikilink]]`-ing it. Heuristic: for each existing page slug, grep the rest of the wiki for the corresponding natural-language name; if a match has no surrounding wikilink, flag.
+
+6. **Frontmatter validity.** Every wiki page has YAML frontmatter with the fields required by its `type` (see "Page types"). Check: `type` is one of the five values, `created`/`updated` are valid ISO 8601 dates, `sources:` (or `source:` for source-summary) references slugs that exist.
+
+7. **Broken `[[wikilinks]]`.** Every `[[slug]]` and `[[slug|alias]]` resolves to an existing file. Enumerate targets:
+
+   ```bash
+   grep -rohE '\[\[[a-z0-9-]+' wiki/ | sort -u
+   ```
+
+   For each, check `find wiki -name '<slug>.md'`. Flag misses.
+
+8. **Missing source sidecars.** For every file in `raw/` outside `raw/info/` and `raw/assets/`, there must be a matching `raw/info/<basename>.info.md`. PDFs additionally need `raw/info/<basename>.text.md`. Detect:
+
+   ```bash
+   # originals (excluding info/ and assets/), at any depth in raw/
+   find raw -type f -not -path 'raw/info/*' -not -path 'raw/assets/*' -not -name '.*'
+   # for each, expect raw/info/<basename>.info.md (and .text.md for *.pdf)
+   ```
+
+   Also flag **orphan sidecars** — `.info.md` or `.text.md` files in `raw/info/` whose original no longer exists.
+
+### Optional: staleness check
+
+Only when invoked as `lint with staleness` (or equivalent NL — "lint including stale", "lint and check for old pages"). **Default lint does not include this** — it grows noisy as the wiki ages.
+
+- Flag any wiki page whose `updated:` frontmatter is more than **6 months** ago, as a candidate for review.
+- Finding format: page path, `updated:` date, age, suggested action ("re-read against newer sources" or "confirm still accurate").
+- Staleness alone is not a defect — just a prompt to look.
+
+### Report format
+
+A single markdown report, one H2 per check (even when empty). Within each H2, one bullet per finding with:
+
+- **File path(s)** — affected page(s), relative to repo root
+- **One-line description** — what's wrong
+- **Suggested fix** — concrete action the user can approve
+
+Shape:
+
+```markdown
+# Wiki lint report — 2026-05-10
+
+## Contradictions
+
+(none)
+
+## Freshness conflicts
+
+- `wiki/concepts/memex.md`
+  - Cites `[[bush-1945|1945-07-01]]` for the trail-following claim, but `[[modern-reanalysis|2024-11-02]]` (also cited on the page) disputes it.
+  - **Suggested fix:** Resolve per "Handling contradictions" — Replace, Both, or Keep old.
+
+## Orphan pages
+
+- `wiki/entities/obscure-thing.md`
+  - No inbound wikilinks from any other page.
+  - **Suggested fix:** Link from a related page, merge into an existing one, or delete.
+
+## Missing pages
+
+- `[[associative-trails]]`
+  - Referenced from `wiki/sources/llm-wiki.md` and `wiki/concepts/memex.md` but no page exists.
+  - **Suggested fix:** Create a `concept` page using the template in "Page types > concept".
+
+## Missing cross-references
+
+(none)
+
+## Frontmatter validity
+
+(none)
+
+## Broken wikilinks
+
+- `wiki/concepts/memex.md`
+  - `[[as-we-may-think]]` doesn't resolve.
+  - **Suggested fix:** Create the page, or fix the link target.
+
+## Missing source sidecars
+
+- `raw/some-article.md`
+  - No `raw/info/some-article.info.md`.
+  - **Suggested fix:** Run `/ingest raw/some-article.md` to create the sidecar (and the wiki summary if not yet ingested).
+```
+
+### After producing the report
+
+1. **Do not apply fixes automatically.** Surface the report; wait for the user.
+2. The user will say "apply all", "apply these", or "ignore for now". For each approved fix, perform it and confirm the lint finding is resolved.
+3. **Append a log entry** to `wiki/log.md` (full conventions in US-007):
+
+   ```markdown
+   ## [YYYY-MM-DD] lint | <default | with staleness>
+
+   - Findings: <count by category, e.g. "1 contradiction, 2 missing pages, 0 broken links">
+   - Applied: <count of fixes the user approved>
+   - Deferred: <count left for later>
+   - Notable: <anything unusual — e.g. cluster of stale pages on one topic>
+   ```
+
+### Performance note
+
+At small scale (tens of pages) run checks sequentially. At larger scale, the file-system checks (broken wikilinks, missing sidecars) can run in parallel with the prose-reading checks (contradictions, missing cross-references) since they touch disjoint inputs.
