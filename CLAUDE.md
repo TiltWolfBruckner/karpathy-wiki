@@ -545,9 +545,9 @@ Triggered by either `/ingest <path>` (the slash command in `.claude/commands/ing
    - **Page does not exist, the entity/concept warrants one:** create it using the template from "Page types". Cite the new source.
    - **Page exists, source contradicts an existing claim:** stop. See "Handling contradictions" below.
 
-6. **Update `wiki/index.md`.** Add or update entries for any new or modified pages. Section order is per "Page types" (Sources / Entities / Concepts / Comparisons / Overviews). Within each section, alphabetical by slug. Entry format: `- [[slug]] — one-line summary`.
+6. **Update `wiki/index.md`.** Add or update entries for any new or modified pages. Section order: Sources / Entities / Concepts / Comparisons / Overviews. Alphabetical by slug within each section. Entry format: `- [[slug]] — one-line summary`. **Canonical conventions in `wiki/index.md`'s HTML comment** — re-read it before each update.
 
-7. **Append a log entry to `wiki/log.md`.** Format (full conventions defined in US-007):
+7. **Append a log entry to `wiki/log.md`.** Newest entries go at the bottom. Format (canonical conventions in `wiki/log.md`'s HTML comment):
 
    ```markdown
    ## [YYYY-MM-DD] ingest | <Source Title>
@@ -629,10 +629,19 @@ Filing happens **only with user confirmation.** When offering, suggest a page ty
 
 If the user accepts:
 - Use the relevant template from "Page types".
-- Update `wiki/index.md`.
-- Append a log entry: `## [YYYY-MM-DD] query | <question summary>` with the new page noted in `Pages touched:`.
+- Update `wiki/index.md` (per its HTML-comment conventions).
+- Append a log entry to `wiki/log.md` (canonical conventions in its HTML comment):
 
-If the user declines, don't push. Note that `wiki/log.md` will not record the conversation, so the answer won't be discoverable later — that's their call.
+   ```markdown
+   ## [YYYY-MM-DD] query | <one-line question>
+
+   - Question: <full or summarized question>
+   - Filed: [[<new-page-slug>]]
+   - Pages touched: [[page-1]], [[page-2]], ...
+   - Notable: <one line — contradictions surfaced, fresh source needed, etc.>
+   ```
+
+If the user declines, don't push. **Don't log declined queries** — the wiki only records what compounds. The answer stays in chat history; if the user wants it back later, they'll re-ask.
 
 ### Fallback — wiki has no relevant content
 
@@ -750,7 +759,7 @@ Shape:
 
 1. **Do not apply fixes automatically.** Surface the report; wait for the user.
 2. The user will say "apply all", "apply these", or "ignore for now". For each approved fix, perform it and confirm the lint finding is resolved.
-3. **Append a log entry** to `wiki/log.md` (full conventions in US-007):
+3. **Append a log entry** to `wiki/log.md` (canonical conventions in its HTML comment):
 
    ```markdown
    ## [YYYY-MM-DD] lint | <default | with staleness>
