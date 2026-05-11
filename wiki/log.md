@@ -30,3 +30,10 @@
 -->
 
 A chronological record of every ingest, query (when filed), and lint pass. Append-only — newest at the bottom.
+
+## [2026-05-11] ingest | LLM Wiki — A pattern for building personal knowledge bases using LLMs
+
+- Sidecar: `raw/info/llm-wiki.info.md`
+- Summary: [[llm-wiki]]
+- Pages touched: [[llm-wiki]], [[obsidian]], [[vannevar-bush]], [[llm-wiki-pattern]], [[memex]], [[rag]]
+- Notable: First end-to-end validation ingest (US-008). Six wiki pages created from scratch; no contradictions to resolve; no prior wiki state to conflict against. Several entities mentioned in passing in the source (Claude Code, Tolkien Gateway, NotebookLM, qmd, Marp, Dataview, Obsidian Web Clipper) intentionally left without wiki pages per "Page types" guidance against pre-creating.

@@ -39,3 +39,18 @@ Judgment calls made during implementation that go beyond the strict acceptance c
 - **Index summary rule pinned to "first meaningful sentence" of Definition/Summary/Abstract.** PRD just said "one-line summary"; specifying which sentence avoids wording drift across ingests.
 - **Log conventions duplicate the per-op body bullets** in the HTML comment. Means the LLM doesn't need to cross-reference CLAUDE.md every time it writes a log entry — `wiki/log.md` carries the spec.
 - **Confirmed: declined queries are not logged.** Restated in the log-conventions HTML comment so it's explicit at the file level.
+
+## US-009
+
+- **Slash command is intentionally thin.** `.claude/commands/ingest.md` delegates entirely to `CLAUDE.md > Ingest workflow` for the actual steps; the command file only handles trigger-level pre-flight (empty args, path outside `raw/`, sidecar/asset paths, basename collision). Reason: updates to the workflow take effect without touching the command file.
+- **Pre-flight is duplicated** between the slash command and `CLAUDE.md`'s Ingest workflow. Restated at the command level so it stops cleanly when arguments are bad — even before delegating to the workflow.
+
+## US-008 (validation findings — follow-ups for future PRD/CLAUDE.md updates)
+
+The end-to-end validation ingest of `raw/llm-wiki.md` produced all expected artifacts (sidecar, source-summary, 5 entity/concept pages, index/log updates) and exercised the date-tagged citation format. Live wiki content has zero broken wikilinks. Findings to address in a follow-up pass:
+
+- **Broken-wikilink lint check needs comment/code-block awareness.** The canonical grep `grep -rohE '\[\[[a-z0-9-]+' wiki/` produces false positives on template placeholders inside HTML comments (`[[slug]]`, `[[page-1]]`, `[[wikilink]]` etc. in `wiki/index.md` and `wiki/log.md`'s HTML conventions). Real fix: a pre-pass that strips `<!-- … -->` and fenced code blocks before grepping. Not patched mid-validation per US-008 rules.
+- **Ingest workflow step 3 (discuss takeaways with user) was not actually paused** during validation. The user's standing direction was "do not pause between user stories", which conflicted with the workflow's "Wait for the user's reaction" instruction. The takeaways were produced inline; the user could have intervened. Real ingests in normal sessions will pause as written. Consider documenting an explicit "validation mode" or "batch mode" override in CLAUDE.md if non-interactive ingests become common.
+- **`source-type` vocabulary feels under-specified.** Current options: `article | pdf | note | transcript | other`. The reference design `llm-wiki.md` is a design-pattern description; "note" was the least-bad fit but "design-doc" or "spec" would be more accurate. Consider expanding the vocabulary or making it free-form-string-with-suggestions.
+- **"First meaningful sentence" index-summary rule required per-type judgment.** For source-summary the summary came from Abstract; for entities from Summary; for concepts from Definition. The rule worked but isn't self-explanatory — could be tightened: "summary = first sentence of the first H2 in the page body."
+- **Missing pages vs. broken wikilinks lint checks partially overlap.** A wikilink in a source-summary's Entities/Concepts list that points to a nonexistent page is BOTH a "missing page" finding and a "broken wikilink" finding. Currently surfaced twice. Consider deduplicating in the report — perhaps the missing-pages check fires first and suppresses broken-wikilink findings for those same targets.
