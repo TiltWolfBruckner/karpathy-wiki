@@ -579,9 +579,71 @@ Never silently overwrite a contradicted claim. The whole point of date-tagged ci
 | Pasted text or note (`.txt`, `.md`) | Read tool, direct | no |
 | PDF | Read tool with `pages` parameter (required for >10pp) | **yes** — write extracted text to `raw/info/<basename>.text.md` on first ingest |
 
+## Query workflow
+
+Triggered by any natural-language question against the wiki. No slash command in v1. Same workflow whether the question is a one-liner ("when did Bush propose the Memex?") or open-ended ("how do LLM-maintained wikis differ from RAG?").
+
+If the question is genuinely outside the wiki's scope (small talk, unrelated tasks), answer normally — don't force a wiki retrieval pass for everything.
+
+### Steps
+
+1. **Read `wiki/index.md` first.** It's the canonical list of every page in the wiki, grouped by type. Identify candidate pages whose one-line summaries match the query.
+
+2. **If the index is enough**, skip to step 4. The index suffices for simple lookups ("which page covers X?", "do we have a page on Y?").
+
+3. **If the index isn't enough, grep `wiki/`.** Canonical patterns:
+
+   - List files matching a keyword: `grep -rli "<keyword>" wiki/`
+   - Show keyword in context (2 lines after): `grep -rni -A 2 "<keyword>" wiki/`
+   - Restrict to one type: `grep -rli "<keyword>" wiki/concepts/`
+   - Find pages citing a specific source: `grep -rli "\[\[<source-slug>|" wiki/`
+   - Enumerate every wikilink target in the wiki: `grep -rohE "\[\[[a-z0-9-]+" wiki/ | sort -u`
+
+   Use `-i` for case-insensitive (filenames are kebab-case, headings are natural-case). Search `wiki/` only — don't grep `raw/` for query work; that's what the wiki exists to avoid.
+
+4. **Read the candidate pages.** Use the Read tool — the index is one line per page, the actual page is where claims live.
+
+5. **Synthesize the answer.** Cite wiki pages with `[[wikilink]]` and sources with date-tagged `[[source-slug|YYYY-MM-DD]]`. Quote dates explicitly when claims are date-sensitive ("As of [[llm-wiki|2026-05-10]], the pattern is still abstract, not a packaged tool.").
+
+6. **Apply the filing rule** (below). If the answer meets a trigger, offer to file it as a new wiki page before moving on.
+
+### Citation rules in answers
+
+- Every wiki page referenced: `[[page-slug]]`. Obsidian renders the link.
+- Every source cited: `[[source-slug|YYYY-MM-DD]]` — date is the source's `created` if known, otherwise `indexed`.
+- Multiple sources on the same claim: cite each. "X is widely accepted ([[a|2023-04-01]], [[b|2024-09-15]])."
+- If a claim's source is already contradicted by a newer source elsewhere in the wiki, surface that in the answer — don't paper over it. Mention that `lint` can audit similar freshness conflicts across the wiki.
+- **Never invent a wikilink to a page that doesn't exist** to make an answer look better-cited. Broken wikilinks are corrosive.
+
+### Filing rule
+
+After answering, **offer to file the answer as a new wiki page** if any of these triggers fire:
+
+- (a) The answer cites ≥2 wiki pages.
+- (b) The answer introduces a new comparison or synthesis not present in any existing page.
+- (c) The answer is multi-paragraph and addresses a non-trivial query.
+
+Filing happens **only with user confirmation.** When offering, suggest a page type (typically `comparison`, `concept`, or `overview`) and a candidate slug. Phrase the offer concretely: "Want me to file this as `wiki/comparisons/rag-vs-wiki.md`?"
+
+**Bias toward offering.** The wiki's value compounds when explorations get filed; one-off chats lose the synthesis.
+
+If the user accepts:
+- Use the relevant template from "Page types".
+- Update `wiki/index.md`.
+- Append a log entry: `## [YYYY-MM-DD] query | <question summary>` with the new page noted in `Pages touched:`.
+
+If the user declines, don't push. Note that `wiki/log.md` will not record the conversation, so the answer won't be discoverable later — that's their call.
+
+### Fallback — wiki has no relevant content
+
+If the wiki has nothing relevant:
+
+1. **Say so explicitly.** Don't paraphrase training-data knowledge as if it came from the wiki. Make the gap visible.
+2. **Suggest sources to ingest.** Concrete: "Nothing in the wiki on [topic]. To answer this from the wiki, it would need a source on X, Y, or Z — drop one in `raw/` and re-ask, or share what you have."
+3. **Optionally answer from general knowledge** with an explicit `(not in wiki)` caveat so the user can choose to ingest a source and re-ask if they want the answer filed.
+
 ## Sections under construction
 
 Added in subsequent user stories — until they exist, ask the user before doing the corresponding operation:
 
-- **Query workflow** (US-005) — how to retrieve from the wiki and cite sources.
 - **Lint workflow** (US-006) — health checks and the freshness-conflict detector.
