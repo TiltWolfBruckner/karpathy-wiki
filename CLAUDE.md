@@ -19,7 +19,7 @@ Three layers plus per-source sidecars:
 - **`raw/`** — original source documents (articles, PDFs, pasted notes). Immutable. The LLM reads these but never modifies them.
 - **`raw/info/`** — LLM-owned sidecars, one per source. Holds metadata (`created`, `indexed`, `updated`) and, for PDFs, extracted text. See "Source sidecars" below.
 - **`raw/assets/`** — image and binary attachments referenced from sources. LLM-writable (e.g. when an Obsidian Web Clipper download lands here).
-- **`wiki/`** — LLM-generated markdown. Source summaries in `wiki/sources/`, entity pages in `wiki/entities/`, concept pages in `wiki/concepts/`, plus `wiki/index.md` and `wiki/log.md`. The LLM owns this layer entirely.
+- **`wiki/`** — LLM-generated markdown. Source summaries in `wiki/sources/`, entity pages in `wiki/entities/`, concept pages in `wiki/concepts/`, comparisons in `wiki/comparisons/`, overviews in `wiki/overviews/`, plus `wiki/index.md` and `wiki/log.md`. The LLM owns this layer entirely.
 - **`CLAUDE.md`** (this file) — the schema. Co-evolves with use; updates require user direction.
 
 Other directories at repo root: `tasks/` (PRDs and planning) and `.claude/commands/` (project slash commands). The LLM does not modify files under either unless explicitly asked.
@@ -130,11 +130,394 @@ Pages with missing or malformed frontmatter will be flagged by `lint`.
 - "Today" is the date you're running, not the date the source mentions.
 - When updating a sidecar, bump `updated` even if no other field changed (it's how lint knows the sidecar was reviewed).
 
+## Page types
+
+Five types. Each has a fixed location, frontmatter shape, required sections, and a clear "when to create".
+
+Quick reference:
+
+| Type | Location | When to create |
+|---|---|---|
+| `source-summary` | `wiki/sources/<slug>.md` | Every source ingest. One per `raw/<file>`. |
+| `entity` | `wiki/entities/<slug>.md` | A discrete, identifiable thing-in-the-world (person, place, organization, named work, software). |
+| `concept` | `wiki/concepts/<slug>.md` | An abstraction — idea, technique, principle, pattern. |
+| `comparison` | `wiki/comparisons/<slug>.md` | A side-by-side analysis of 2+ entities/concepts (often filed from a query answer). |
+| `overview` | `wiki/overviews/<slug>.md` | A roadmap / "start here" page once a topic cluster has accumulated several pages. |
+
+### Entity vs. concept — decision rule
+
+The most common waffling point. Default question: **does this thing have a proper name and exactly one canonical instance you could point at?**
+
+- **Entity** — yes, one canonical instance. "Vannevar Bush" (a specific person), "Tolkien Gateway" (a specific website), "Memex" (a specific 1945 proposal), "GPT-4" (a specific model), "As We May Think" (a specific essay).
+- **Concept** — no, it's an abstraction or category that can have many instances. "Associative trails" (an idea), "personal knowledge management" (a practice), "transformer architecture" (a class of models), "RAG" (a technique).
+
+**Tiebreakers:**
+
+- A specific paper/book is an entity; the technique it describes is a concept. (`rag-paper.md` = entity; `rag.md` = concept.)
+- A specific software project is an entity; the pattern it embodies is a concept.
+- When in doubt, **default to concept**. Concepts merge cleanly later; entities accumulate identity-specific structure that's hard to undo.
+
+If the same name applies to both an entity and a concept (rare), create both with disambiguating slugs and cross-link them.
+
+### `source-summary`
+
+**Location:** `wiki/sources/<slug>.md` — one per ingested source. Slug matches the source basename (`raw/llm-wiki.md` → `wiki/sources/llm-wiki.md`).
+
+**Frontmatter** — note this type uses `source:` (singular pointer) rather than `sources:`:
+
+```yaml
+---
+type: source-summary
+created: YYYY-MM-DD       # date this summary page was written
+updated: YYYY-MM-DD       # bump on meaningful edits
+source: <raw-basename>    # filename in raw/ without extension
+indexed: YYYY-MM-DD       # mirror of sidecar's `indexed`
+url: <if applicable>      # mirror of sidecar's `url`
+source-type: article | pdf | note | transcript | other
+---
+```
+
+**Required sections:**
+1. `# <Title of the source>` (H1)
+2. **Citation** — where the source lives (`raw/<file>`) and original URL if any
+3. **Abstract** — 2–4 sentences on what the source is
+4. **Key claims** — bulleted list of the source's main assertions, in source order
+5. **Entities** — bulleted list of `[[entity-slug]]` wikilinks for entities the source covers
+6. **Concepts** — bulleted list of `[[concept-slug]]` wikilinks for concepts the source covers
+7. **Notes** — optional: caveats, unresolved questions, things that don't fit above
+
+**Worked example:**
+
+```markdown
+---
+type: source-summary
+created: 2026-05-10
+updated: 2026-05-10
+source: llm-wiki
+indexed: 2026-05-10
+url:
+source-type: note
+---
+
+# LLM Wiki — A pattern for building personal knowledge bases using LLMs
+
+## Citation
+
+`raw/llm-wiki.md` (no original URL — repo-internal design doc)
+
+## Abstract
+
+Describes a pattern where an LLM agent incrementally builds and maintains a persistent
+markdown wiki from raw source documents, instead of doing RAG from scratch on every
+query. Three layers (raw, wiki, schema) plus operations for ingest, query, and lint.
+
+## Key claims
+
+- Maintenance burden, not reading or thinking, is what kills human-maintained wikis.
+- A persistent wiki accumulates synthesis; RAG re-derives it on every query.
+- The LLM should own all wiki writes; the human curates sources and asks questions.
+- `index.md` + `log.md` plus grep is sufficient retrieval at moderate scale.
+
+## Entities
+
+- [[obsidian]]
+- [[claude-code]]
+- [[tolkien-gateway]]
+- [[vannevar-bush]]
+
+## Concepts
+
+- [[memex]]
+- [[rag]]
+- [[personal-knowledge-management]]
+
+## Notes
+
+The reference doc explicitly leaves directory layout, conventions, and tooling to the
+implementer. Many decisions in this wiki's CLAUDE.md are choices, not the only path.
+```
+
+### `entity`
+
+**Location:** `wiki/entities/<slug>.md`
+
+**When to create:** when a source mentions a thing-in-the-world that warrants its own page (referenced multiple times across sources, or central to a source). Don't pre-create entities the wiki doesn't yet need.
+
+**Frontmatter:**
+
+```yaml
+---
+type: entity
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+sources:
+  - <source-slug>
+entity-kind: person | place | organization | work | software | other
+aliases: [<other names this entity goes by>]   # optional
+---
+```
+
+**Required sections:**
+1. `# <Entity Name>` (H1, naturally capitalized)
+2. **Summary** — 1–2 paragraph definition / "what is this thing"
+3. **Key facts** — bulleted properties (dates, locations, roles as relevant)
+4. **Related** — `[[wikilinks]]` to related entities and concepts, organized as **Entities:** / **Concepts:** sub-bullets
+5. **Sources** — date-tagged citations `[[source-slug|YYYY-MM-DD]]`, one per supporting source
+
+**Worked example:**
+
+```markdown
+---
+type: entity
+created: 2026-05-10
+updated: 2026-05-10
+sources:
+  - llm-wiki
+entity-kind: person
+aliases: [Bush, V. Bush]
+---
+
+# Vannevar Bush
+
+## Summary
+
+American engineer and science administrator (1890–1974). Best known to the PKM community
+for his 1945 essay "As We May Think," which proposed the Memex — a personal knowledge
+store with associative trails between documents.
+
+## Key facts
+
+- Born 1890, died 1974
+- Director of the U.S. Office of Scientific Research and Development during WWII
+- Authored "As We May Think" in *The Atlantic*, July 1945
+
+## Related
+
+**Entities:**
+- [[as-we-may-think]] — his 1945 essay
+
+**Concepts:**
+- [[memex]] — the personal knowledge store he proposed
+- [[associative-trails]]
+
+## Sources
+
+- [[llm-wiki|2026-05-10]] — references Bush's vision as a precursor to the LLM-wiki pattern
+```
+
+### `concept`
+
+**Location:** `wiki/concepts/<slug>.md`
+
+**When to create:** when a source introduces or significantly uses an abstract idea, technique, or pattern worth a standalone page. Same restraint as entities — don't pre-create.
+
+**Frontmatter:**
+
+```yaml
+---
+type: concept
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+sources:
+  - <source-slug>
+---
+```
+
+**Required sections:**
+1. `# <Concept Name>` (H1)
+2. **Definition** — 1–3 sentences. What is this idea?
+3. **Why it matters** — 1 paragraph on the concept's significance / where it appears
+4. **Related** — `[[wikilinks]]` (Entities / Concepts sub-bullets)
+5. **Sources** — date-tagged citations
+
+**Worked example:**
+
+```markdown
+---
+type: concept
+created: 2026-05-10
+updated: 2026-05-10
+sources:
+  - llm-wiki
+---
+
+# Memex
+
+## Definition
+
+A hypothetical personal knowledge device, proposed by [[vannevar-bush]] in 1945, that
+would store a person's books, records, and communications and let them follow associative
+trails between documents.
+
+## Why it matters
+
+The Memex is the spiritual ancestor of personal knowledge management systems, hypertext,
+and — per [[llm-wiki|2026-05-10]] — the LLM-maintained wiki pattern. Bush correctly
+identified that the connections between documents matter as much as the documents
+themselves; what he couldn't solve was who maintains the connections.
+
+## Related
+
+**Entities:**
+- [[vannevar-bush]]
+- [[as-we-may-think]]
+
+**Concepts:**
+- [[associative-trails]]
+- [[personal-knowledge-management]]
+
+## Sources
+
+- [[llm-wiki|2026-05-10]]
+```
+
+### `comparison`
+
+**Location:** `wiki/comparisons/<slug>.md`
+
+**When to create:** when a query answer compares 2+ entities/concepts in a way the user wants preserved (per the filing rule in the Query workflow), or when a source explicitly compares N things. Slug names the comparison: `rag-vs-fine-tuning.md`, `memex-vs-web.md`.
+
+**Frontmatter:**
+
+```yaml
+---
+type: comparison
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+sources:
+  - <source-slug>
+compares:
+  - <slug-of-thing-1>
+  - <slug-of-thing-2>
+---
+```
+
+**Required sections:**
+1. `# <Thing A> vs. <Thing B>` (H1)
+2. **What's compared** — bulleted list of `[[wikilinks]]` to the things being compared
+3. **Comparison** — markdown table with axes as rows and the things as columns. If a table doesn't fit, use one `### <axis>` heading per axis with prose underneath.
+4. **Tradeoffs** — 1–2 paragraphs on when to prefer which
+5. **Sources** — date-tagged citations
+
+**Worked example:**
+
+```markdown
+---
+type: comparison
+created: 2026-05-10
+updated: 2026-05-10
+sources:
+  - llm-wiki
+compares:
+  - rag
+  - llm-wiki-pattern
+---
+
+# RAG vs. LLM-Maintained Wiki
+
+## What's compared
+
+- [[rag]] — retrieval at query time from raw sources
+- [[llm-wiki-pattern]] — incremental compilation into a persistent wiki
+
+## Comparison
+
+| Axis | RAG | LLM-maintained wiki |
+|---|---|---|
+| When work happens | Per-query | At ingest time, then amortized |
+| Synthesis | Re-derived each query | Compiled once, kept current |
+| Cross-references | Implicit in embeddings | Explicit `[[wikilinks]]` |
+| Human inspection | Embedding chunks (opaque) | Markdown pages (readable) |
+| Maintenance | None — always re-derives | Required, but the LLM does it |
+
+## Tradeoffs
+
+RAG wins when the corpus is huge, the queries are unpredictable, and you don't care about
+human inspection of intermediate state. The wiki pattern wins when accumulation matters —
+when you want to ask the same question in six months and get a richer answer because of
+everything that's been read between now and then.
+
+## Sources
+
+- [[llm-wiki|2026-05-10]]
+```
+
+### `overview`
+
+**Location:** `wiki/overviews/<slug>.md`
+
+**When to create:** when a topic cluster has accumulated ~5+ pages and a roadmap helps. Don't pre-create overviews — wait until the volume justifies one.
+
+**Frontmatter:**
+
+```yaml
+---
+type: overview
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+sources:
+  - <source-slug>
+covers:
+  - <slug-of-page-1>
+  - <slug-of-page-2>
+---
+```
+
+**Required sections:**
+1. `# <Topic>` (H1)
+2. **Scope** — 1–2 sentences on what this overview covers (and what it doesn't)
+3. **Reading order** — ordered list of `[[wikilinks]]` with a one-line annotation each
+4. **Open questions** — bulleted list of things the wiki doesn't yet answer about this topic
+5. **Sources** — date-tagged citations
+
+**Worked example:**
+
+```markdown
+---
+type: overview
+created: 2026-05-10
+updated: 2026-05-10
+sources:
+  - llm-wiki
+covers:
+  - vannevar-bush
+  - memex
+  - associative-trails
+  - personal-knowledge-management
+  - llm-wiki-pattern
+---
+
+# Personal Knowledge Management — Memex to LLM Wikis
+
+## Scope
+
+A reading roadmap from Vannevar Bush's 1945 Memex proposal to today's LLM-maintained
+wikis. Covers the conceptual lineage; does not cover commercial PKM tooling (Notion,
+Roam, Obsidian as products).
+
+## Reading order
+
+1. [[vannevar-bush]] — the originator of the personal-curation vision
+2. [[as-we-may-think|1945-07-01]] — his 1945 essay (start here for primary source)
+3. [[memex]] — the device he proposed
+4. [[associative-trails]] — the navigation primitive Bush couldn't solve
+5. [[personal-knowledge-management]] — the modern practice
+6. [[llm-wiki-pattern]] — how LLMs make Bush's vision feasible
+
+## Open questions
+
+- What did the early hypertext systems (Xanadu, NLS) get right that's been forgotten?
+- How do LLM-maintained wikis compare to community-maintained ones (Wikipedia, fan wikis)?
+
+## Sources
+
+- [[llm-wiki|2026-05-10]]
+```
+
 ## Sections under construction
 
 Added in subsequent user stories — until they exist, ask the user before doing the corresponding operation:
 
-- **Page types** (US-003) — catalog of `source-summary` / `entity` / `concept` / `comparison` / `overview` with templates.
 - **Ingest workflow** (US-004) — what happens when a new source lands in `raw/`.
 - **Query workflow** (US-005) — how to retrieve from the wiki and cite sources.
 - **Lint workflow** (US-006) — health checks and the freshness-conflict detector.
