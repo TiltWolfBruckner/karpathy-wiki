@@ -669,19 +669,13 @@ Run all of these and produce one report section per check (even if empty — emp
 
 3. **Orphan pages.** Wiki pages with no inbound `[[wikilinks]]`. Detect by enumerating all page slugs, then `grep`-ing the rest of the wiki for each. Source-summary pages are partially exempt (often only linked from a single entity/concept page) but should be flagged when no entity/concept references them at all.
 
-4. **Missing pages — important concepts/entities mentioned but unwritten.** Walk source-summary pages: for each `[[entity-slug]]` or `[[concept-slug]]` in Entities/Concepts sections, check whether the corresponding `wiki/entities/<slug>.md` or `wiki/concepts/<slug>.md` exists. Flag the missing ones — they're wiki-implied but unwritten.
+4. **Missing pages — important concepts/entities mentioned but unwritten.** Run `python3 scripts/lint-wikilinks.py wiki/ --check missing-pages`. A finding fires when a wikilink in a source-summary's `## Entities` or `## Concepts` H2 section points to a slug with no matching page anywhere under `wiki/`. Reported once per target, with every referring location listed.
 
 5. **Missing cross-references.** Pages that mention a known entity/concept in prose without `[[wikilink]]`-ing it. Heuristic: for each existing page slug, grep the rest of the wiki for the corresponding natural-language name; if a match has no surrounding wikilink, flag.
 
 6. **Frontmatter validity.** Every wiki page has YAML frontmatter with the fields required by its `type` (see "Page types"). Check: `type` is one of the five values, `created`/`updated` are valid ISO 8601 dates, `sources:` (or `source:` for source-summary) references slugs that exist.
 
-7. **Broken `[[wikilinks]]`.** Every `[[slug]]` and `[[slug|alias]]` resolves to an existing file. Enumerate targets:
-
-   ```bash
-   grep -rohE '\[\[[a-z0-9-]+' wiki/ | sort -u
-   ```
-
-   For each, check `find wiki -name '<slug>.md'`. Flag misses.
+7. **Broken `[[wikilinks]]`.** Run `python3 scripts/lint-wikilinks.py wiki/ --check broken`. Every result is a real broken link — the tool skips HTML comments, fenced code blocks, and inline code spans, so template content (e.g. `[[slug]]` / `[[page-1]]` placeholders inside `wiki/index.md` and `wiki/log.md`'s HTML conventions) does not false-positive.
 
 8. **Missing source sidecars.** For every file in `raw/` outside `raw/info/` and `raw/assets/`, there must be a matching `raw/info/<basename>.info.md`. PDFs additionally need `raw/info/<basename>.text.md`. Detect:
 
@@ -692,6 +686,12 @@ Run all of these and produce one report section per check (even if empty — emp
    ```
 
    Also flag **orphan sidecars** — `.info.md` or `.text.md` files in `raw/info/` whose original no longer exists.
+
+### Broken vs. missing-page dedup
+
+Checks 4 (missing pages) and 7 (broken wikilinks) return **disjoint** findings. A wikilink target classified as `missing-page` does not also fire `broken` for its other occurrences. The dedup is **per-target**, not per-occurrence: even if `[[X]]` is broken on three different pages, if any one of those occurrences sits inside a source-summary's `## Entities` or `## Concepts` H2 section, all three get rolled into a single `missing-page` finding (with all referring locations listed). The Python tool enforces this in its classifier; the lint report should not show the same target in both sections.
+
+Rationale: one action ("create the page") resolves the missing-page *and* every related broken-link occurrence. Reporting both is redundant noise.
 
 ### Optional: staleness check
 
@@ -732,9 +732,11 @@ Shape:
 
 ## Missing pages
 
-- `[[associative-trails]]`
-  - Referenced from `wiki/sources/llm-wiki.md` and `wiki/concepts/memex.md` but no page exists.
-  - **Suggested fix:** Create a `concept` page using the template in "Page types > concept".
+- `[[associative-trails]]` — no wiki page exists for this slug
+  Referenced from:
+    - `wiki/sources/llm-wiki.md:14` (Entities/Concepts section — this occurrence is what triggers the classification)
+    - `wiki/concepts/memex.md:22`   (would have been a separate broken-wikilink finding; per-target dedup rolls it into this entry)
+  - **Suggested fix:** Create a `concept` page using the template in "Page types > concept". One file resolves all referring locations.
 
 ## Missing cross-references
 
@@ -746,9 +748,9 @@ Shape:
 
 ## Broken wikilinks
 
-- `wiki/concepts/memex.md`
-  - `[[as-we-may-think]]` doesn't resolve.
-  - **Suggested fix:** Create the page, or fix the link target.
+- `wiki/concepts/memex.md:18`  `[[as-we-may-think]]`
+  - Target doesn't resolve. The occurrence sits in the page's "Related" section, not a source-summary's `## Entities` or `## Concepts` H2 — so it stays in the broken-wikilinks category (per "Broken vs. missing-page dedup" above).
+  - **Suggested fix:** Create `wiki/entities/as-we-may-think.md` (Bush's essay is an entity per the entity-vs-concept rule), or fix the link target.
 
 ## Missing source sidecars
 
