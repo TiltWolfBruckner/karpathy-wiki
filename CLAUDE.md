@@ -42,6 +42,8 @@ Other directories at repo root: `tasks/` (PRDs and planning) and `.claude/comman
 
 ## Source sidecars
 
+**Sidecar** = a separate file that carries metadata or derived content about a primary file, kept apart so the primary stays byte-identical to what arrived. (Convention borrowed from data engineering — e.g. camera RAW files + `.xmp` metadata sidecars.) In this wiki, originals live in `raw/` and every sidecar lives flat under `raw/info/`, paired by basename.
+
 For every original at `raw/<basename>.<ext>` (excluding anything under `raw/info/` or `raw/assets/`), maintain a sidecar at `raw/info/<basename>.info.md` with YAML frontmatter:
 
 ```yaml
