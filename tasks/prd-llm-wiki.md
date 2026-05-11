@@ -122,6 +122,35 @@ The reference design is `/Users/user/code/wiki/llm-wiki.md`. This PRD instantiat
 - [ ] Validate by running `/ingest <path>` on the same test source used in US-008 and confirming the same workflow output
 - [ ] Commit with message starting `US-009`
 
+### US-010: Python tool for wikilink linting
+**Description:** As Claude Code running `lint`, I want a deterministic Python tool that parses `[[wikilinks]]` while skipping HTML comments, fenced code blocks, and inline code, so the broken-wikilink check stops false-positiving on template content (e.g. the `[[slug]]` placeholders inside `wiki/index.md`'s HTML conventions comment).
+
+**Acceptance Criteria:**
+- [ ] `scripts/lint-wikilinks.py` exists, has a `#!/usr/bin/env python3` shebang, and is executable
+- [ ] Walks `*.md` files under a given directory (default `wiki/`), finding every `[[slug]]` and `[[slug|alias]]`. Skips HTML comments (`<!-- … -->`, multi-line), fenced code blocks (multi-line, any language tag), and inline code spans (single-line).
+- [ ] Stripping preserves line numbers (replaces matched regions with empty lines that have the same line count)
+- [ ] Classifies each wikilink target into one of three **disjoint** categories:
+  - `resolved` — target page exists somewhere under the wiki root
+  - `missing-page` — target doesn't exist AND at least one occurrence is inside a source-summary page's `## Entities` or `## Concepts` H2 section. Reported **once per target**, with all referring locations listed.
+  - `broken` — target doesn't exist AND no occurrence is in a source-summary Entities/Concepts section. Reported per-occurrence.
+- [ ] Per-target dedup rule: a target reported as `missing-page` does NOT also produce `broken` findings for its other occurrences.
+- [ ] CLI: `python3 scripts/lint-wikilinks.py [PATH] --check {broken,missing-pages,all} --format {text,json}`. Defaults: PATH=`wiki/`, check=all, format=text.
+- [ ] Exits non-zero when there are findings under the requested checks (useful for CI / sanity).
+- [ ] On the current wiki content, the tool produces **0 broken findings and 0 missing-page findings**. The prior false positives from `[[slug]]`/`[[page-1]]`/`[[wikilink]]` inside `wiki/index.md` and `wiki/log.md` HTML comments are now correctly skipped.
+- [ ] Typecheck/lint passes (`python3 -m py_compile scripts/lint-wikilinks.py` returns 0)
+- [ ] Commit with message starting `US-010`
+
+### US-011: Lint workflow uses the tool; document dedup
+**Description:** As Claude Code following `CLAUDE.md > Lint workflow`, I want the broken-wikilinks and missing-pages checks to delegate to `scripts/lint-wikilinks.py` so I don't have to maintain the comment/code-block stripping logic across sessions. I also want the dedup rule documented so the report never double-reports the same target.
+
+**Acceptance Criteria:**
+- [ ] `CLAUDE.md > Lint workflow > Default checks` "Broken `[[wikilinks]]`" check now reads: *Run `python3 scripts/lint-wikilinks.py wiki/ --check broken`. Every result is a real broken link (the tool skips HTML comments, fenced code blocks, and inline code).* Inline grep recipe removed.
+- [ ] "Missing pages — important concepts/entities mentioned but unwritten" check now reads: *Run `python3 scripts/lint-wikilinks.py wiki/ --check missing-pages`.*
+- [ ] A short paragraph in the lint workflow documents the dedup rule: a wikilink target that's both broken AND referenced from a source-summary's Entities/Concepts section is classified as `missing-page` only, not also as `broken`. Per-target dedup; the right action ("create the page") resolves both.
+- [ ] The worked report example in CLAUDE.md is updated so the "Broken wikilinks" and "Missing pages" sections never reference the same target.
+- [ ] Validate by running `python3 scripts/lint-wikilinks.py wiki/` on the current wiki: zero findings in both categories, no overlap.
+- [ ] Commit with message starting `US-011`
+
 ## 4. Functional Requirements
 
 - FR-1: Repo root contains `CLAUDE.md`, `README.md`, `.gitignore`, `raw/`, `raw/info/`, `wiki/`, `tasks/`, `.claude/commands/`.
@@ -139,7 +168,8 @@ The reference design is `/Users/user/code/wiki/llm-wiki.md`. This PRD instantiat
 - FR-13: The LLM must not modify original source files in `raw/`. The only files it may *create* anywhere under `raw/` are the sidecars described in FR-11 and FR-12, all of which live under `raw/info/`.
 - FR-14: When new sources contradict existing wiki claims by date, the LLM pauses and confirms with the user before overwriting. On confirmation, it updates the wiki page, replaces the older source citation with the newer one, and logs the change.
 - FR-15: The LLM offers to file an answer as a new wiki page when any of these triggers fire: (a) the answer cites ≥2 wiki pages, (b) the answer introduces a new comparison or synthesis, or (c) the answer is multi-paragraph and addresses a non-trivial query. Filing requires user confirmation.
-- FR-16: Default `lint` covers: contradictions, freshness conflicts (date-tagged citations on the same claim where a newer source overrides an older one), orphan pages, missing pages, missing cross-references, frontmatter validity, broken `[[wikilinks]]`, and missing source sidecars. When invoked as `lint with staleness`, it additionally flags pages whose `updated:` is more than 6 months old.
+- FR-16: Default `lint` covers: contradictions, freshness conflicts (date-tagged citations on the same claim where a newer source overrides an older one), orphan pages, missing pages, missing cross-references, frontmatter validity, broken `[[wikilinks]]`, and missing source sidecars. Broken-wikilinks and missing-pages findings are **disjoint** (per-target dedup — see FR-17). When invoked as `lint with staleness`, it additionally flags pages whose `updated:` is more than 6 months old.
+- FR-17: `scripts/lint-wikilinks.py` parses wikilinks under `wiki/` while skipping HTML comments, fenced code blocks, and inline code spans. Classifies each target as `resolved` / `broken` / `missing-page` (disjoint categories). The lint workflow uses this script for the broken-wikilinks and missing-pages checks.
 
 ## 5. Non-Goals (Out of Scope for v1)
 
@@ -193,3 +223,9 @@ The following decisions were made during PRD planning and are baked into the FRs
 - **Source citations on wiki pages:** date-tagged wikilinks `[[source-slug|YYYY-MM-DD]]`. The date enables `lint` to detect freshness conflicts (newer source contradicts older claim).
 - **Lint staleness:** opt-in only (`lint with staleness`). Default lint stays focused on content checks; staleness with N=6 months is available when explicitly requested.
 - **Filing rule for query answers:** offer to file when any of (a) cites ≥2 wiki pages, (b) introduces a new comparison/synthesis, or (c) answer is multi-paragraph for a non-trivial query. Bias toward offering rather than dropping value into chat history.
+
+### Added in US-010/US-011 round (after US-008 validation surfaced false positives)
+
+- **Lint tooling vs. inline grep:** US-010 introduces `scripts/lint-wikilinks.py`. Reason: the inline `grep -rohE '\[\[…'` recipe produced false positives on `[[slug]]`/`[[page-1]]`/`[[wikilink]]` placeholders inside the HTML conventions comments in `wiki/index.md` and `wiki/log.md`. Python script makes the parser deterministic and testable. Other lint checks (contradictions, freshness, orphans, etc.) remain inline; tooling added only where parsing rigor matters.
+- **Per-target dedup for broken vs. missing-page:** a wikilink target that's both broken AND mentioned in a source-summary's Entities/Concepts section classifies as `missing-page` and suppresses the `broken` finding(s) for that same target. The single action ("create the page") resolves both; reporting both is redundant noise.
+- **Scope deliberately limited to US-008 follow-ups #1 and #5.** The other three follow-ups (validation-mode pause for ingest step 3, `source-type` vocabulary, index-summary rule wording) are deferred — they're interaction/style refinements that benefit from real-use feedback before being pinned down.
