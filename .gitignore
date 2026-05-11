@@ -1,0 +1,11 @@
+# Obsidian per-vault state (auto-created on open; varies per machine)
+.obsidian/
+.obsidian.vimrc
+
+# OS / editor artifacts
+.DS_Store
+*.swp
+*~
+
+# Local Claude Code overrides (machine-specific)
+.claude/settings.local.json
