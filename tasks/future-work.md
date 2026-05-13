@@ -65,3 +65,21 @@ Items deliberately deferred from v1. Each has enough scope to be its own user st
 - Cost/quota: background LLM calls have real cost — does the user see a usage projection before enabling?
 
 **Rough scope:** 2–3 stories minimum. Trigger mechanism, failure-handling / escalation UX, log and safety-UX changes.
+
+## Notion ingestor — deferred extensions
+
+**What:** Extensions to the Notion ingestor beyond the v1 scope of single-page ingest + cloud-freshness lint via `/ingest-notion` and `/lint-notion`. The v1 covers: cache one Notion page per invocation to `raw/notion/<slug>.md` with a flat sidecar, append a back-link entry to a single Notion index page, and detect content/title/deleted/inaccessible drift plus index-page link rot through user-invoked lint.
+
+**Why deferred:** The v1 chooses single-page-at-a-time so each ingest can hit the canonical "discuss key takeaways with the user" pause. Drift detection beyond body/title/deletion would either need richer Notion metadata in the sidecar (DB properties) or expensive workspace-wide traversal (sub-page / synced-block drift). Both buy real value but are not load-bearing for a usable v1.
+
+**Open design questions:**
+
+- **Batch ingest by Notion query.** Today `/ingest-notion <url>` ingests one page. The user could want to ingest a whole Notion database, search result, or section of their workspace. Open: how does the "discuss key takeaways" pause work in a batch? Per-page (slow but faithful) or per-batch (fast but loses the per-source nuance)? Where does the failure-recovery sit if page 7 of 30 hits a contradiction?
+- **DB-properties drift (`/lint-notion` drift mode #7).** Notion database pages carry properties (Status, Tags, Date, Person) that change independently of the body. Worth snapshotting at ingest, then diffing on lint. Open: which properties matter? All? User-configured allowlist? Where does the snapshot live — extend `notion-last-edited` into a `notion-snapshot:` map, or a separate `.notion-meta.md` sidecar?
+- **Embedded sub-page / synced-block drift (`/lint-notion` drift mode #8).** Notion pages can embed child databases, synced blocks from elsewhere, linked pages — the parent's `last_edited_time` may or may not propagate through these. Detecting drift in embeds requires walking the full block tree. Open: heuristic (recursive `last_edited_time` rollup if the API exposes it) vs. full block walk; per-page cost ceiling before the user gets warned.
+- **Two-way sync — wiki notes back into Notion.** Today the only Notion-side artifact is the index page. The wiki source-summary could be mirrored back as a comment on the original Notion page, so users browsing Notion see "this has been read by the wiki, summary here". Open: comment vs. property vs. linked-database row; how to keep them in sync; what happens when the wiki summary changes.
+- **Auto-creating the Notion index page.** v1 requires the user to point at an existing page; the slash command stops cleanly and asks. The bootstrap could optionally create the page itself (via `mcp__claude_ai_Notion__notion-create-pages`) if the user grants a parent. Open: parent picker UX in a CLI context; whether to make this opt-in or default.
+- **Image extraction from Notion pages.** Notion pages with embedded images currently get only their text. If the image-heavy-source-handling work above lands, Notion ingest should plug into it — download images to `raw/assets/`, reference them in the cached `raw/notion/<slug>.md`.
+- **Scheduled / cron-based freshness scans.** v1 is purely user-invoked (`/lint-notion`). Pairs with the "Automation" item above — a background hook that runs `/lint-notion` weekly and surfaces a digest. Open: how findings reach the user without spamming.
+
+**Rough scope:** 4–6 stories — batch ingest, DB-properties drift, embedded-block drift, two-way sync, image handling (bundle with the image-handling future-work), and a scheduled-lint hook (bundle with the automation future-work).

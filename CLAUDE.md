@@ -19,6 +19,7 @@ Three layers plus per-source sidecars:
 - **`raw/`** — original source documents (articles, PDFs, pasted notes). Immutable. The LLM reads these but never modifies them.
 - **`raw/info/`** — LLM-owned sidecars, one per source. Holds metadata (`created`, `indexed`, `updated`) and, for PDFs, extracted text. See "Source sidecars" below.
 - **`raw/assets/`** — image and binary attachments referenced from sources. LLM-writable (e.g. when an Obsidian Web Clipper download lands here).
+- **`raw/notion/`** — LLM-owned cache of Notion pages fetched via the Notion MCP. One markdown file per ingested Notion page; overwritten in place on re-ingest (never accumulated). Populated by `/ingest-notion`; never edited by hand. See "Ingest workflow > Notion sources".
 - **`wiki/`** — LLM-generated markdown. Source summaries in `wiki/sources/`, entity pages in `wiki/entities/`, concept pages in `wiki/concepts/`, comparisons in `wiki/comparisons/`, overviews in `wiki/overviews/`, plus `wiki/index.md` and `wiki/log.md`. The LLM owns this layer entirely.
 - **`CLAUDE.md`** (this file) — the schema. Co-evolves with use; updates require user direction.
 
@@ -32,13 +33,15 @@ Other directories at repo root: `tasks/` (PRDs and planning) and `.claude/comman
 | `raw/info/<basename>.info.md` | yes | yes | yes |
 | `raw/info/<basename>.text.md` | yes | yes | yes (PDFs, on first ingest) |
 | `raw/assets/**` | yes | yes | yes |
+| `raw/notion/<file>` | yes | yes (overwrite on re-ingest) | yes (via `/ingest-notion` only) |
+| `notion-index.md` (repo root) | yes | yes | yes (on first `/ingest-notion`) |
 | `wiki/**` | yes | yes | yes |
 | `CLAUDE.md` | yes | only when user asks | only when user asks |
 | `tasks/**` | yes | only when user asks | only when user asks |
 | `README.md` | yes | only when user asks | — |
 | `.claude/commands/**` | yes | only when user asks | only when user asks |
 
-**Rule:** the only files the LLM may write anywhere under `raw/` are the sidecars in `raw/info/` and attachments in `raw/assets/`. Never edit a file the user dropped into `raw/` itself — not to fix a typo, not to add frontmatter, not for any reason.
+**Rule:** the only files the LLM may write anywhere under `raw/` are the sidecars in `raw/info/`, attachments in `raw/assets/`, and the Notion cache in `raw/notion/`. Never edit a file the user dropped into `raw/` directly — not to fix a typo, not to add frontmatter, not for any reason. Files in `raw/notion/` are LLM-managed and overwritten in place by `/ingest-notion`; the user does not drop files there.
 
 ## Source sidecars
 
@@ -50,18 +53,22 @@ For every original at `raw/<basename>.<ext>` (excluding anything under `raw/info
 ---
 title: <human title from the source if available>
 url: <original URL if applicable>
-source-type: text | pdf | transcript | image | other   # broad structural kind
+source-type: text | pdf | transcript | image | other | notion   # broad structural kind
 source-genre: <editorial label>                        # see suggested values below
 created: YYYY-MM-DD   # source's publication date if known; otherwise same as `indexed`
 indexed: YYYY-MM-DD   # date the LLM first read this source
 updated: YYYY-MM-DD   # date this sidecar was last written
+
+# Optional — only set for source-type: notion (see "Ingest workflow > Notion sources"):
+notion-page-id: <uuid>            # Notion's stable page identifier, used for re-ingest lookup
+notion-last-edited: YYYY-MM-DDTHH:MM:SSZ   # Notion's last_edited_time at ingest — the drift baseline used by /lint-notion
 ---
 ```
 
 The `source-type` / `source-genre` split is intentional:
 
-- **`source-type`** is the broad structural kind (closed enum). It tells the workflow how to read the source — `text`/markdown is read directly, `pdf` needs the Read tool's `pages` parameter, `transcript` means the text is derived from audio/video, `image` is image-only material, `other` is the escape hatch. Allowed values: `text | pdf | transcript | image | other`.
-- **`source-genre`** is the editorial label (free-form, with suggestions). It tells the human what kind of *content* this is. Common values: `article | essay | paper | book | design-doc | spec | note | talk | podcast-transcript | video-transcript | social-post | other`. Free-form so unusual sources (e.g. `lab-notebook-entry`, `legal-memo`) aren't forced into `other` — but prefer a listed value when it fits.
+- **`source-type`** is the broad structural kind (closed enum). It tells the workflow how to read the source — `text`/markdown is read directly, `pdf` needs the Read tool's `pages` parameter, `transcript` means the text is derived from audio/video, `image` is image-only material, `notion` is fetched live from Notion via the MCP and cached under `raw/notion/`, `other` is the escape hatch. Allowed values: `text | pdf | transcript | image | other | notion`.
+- **`source-genre`** is the editorial label (free-form, with suggestions). It tells the human what kind of *content* this is. Common values: `article | essay | paper | book | design-doc | spec | note | talk | podcast-transcript | video-transcript | social-post | notion-page | other`. Free-form so unusual sources (e.g. `lab-notebook-entry`, `legal-memo`) aren't forced into `other` — but prefer a listed value when it fits.
 
 The body of the `.info.md` is intentionally blank by default — the human-facing summary lives in `wiki/sources/<slug>.md`, not here. The sidecar exists so the citation, index, and lint workflows have stable per-source metadata to read without re-parsing the source.
 
@@ -74,8 +81,9 @@ The body of the `.info.md` is intentionally blank by default — the human-facin
 | `raw/my-article.md` | `raw/info/my-article.info.md` |
 | `raw/notes.txt` | `raw/info/notes.info.md` |
 | `raw/foo.pdf` | `raw/info/foo.info.md` + `raw/info/foo.text.md` |
+| `raw/notion/some-notion-page.md` | `raw/info/some-notion-page.info.md` |
 
-Sidecars are **flat** under `raw/info/`, not nested. This means basenames must be globally unique within `raw/` — if the user drops two files with the same basename, lint will flag the collision.
+Sidecars are **flat** under `raw/info/`, not nested — even when the source lives in a subdirectory like `raw/notion/`. This means basenames must be globally unique within `raw/` (across all subdirectories). If the user drops two files with the same basename — or a Notion slug collides with an existing source — lint will flag the collision.
 
 ## Naming conventions
 
@@ -178,11 +186,11 @@ If the same name applies to both an entity and a concept (rare), create both wit
 type: source-summary
 created: YYYY-MM-DD       # date this summary page was written
 updated: YYYY-MM-DD       # bump on meaningful edits
-source: <raw-basename>    # filename in raw/ without extension
+source: <raw-basename>    # filename in raw/ without extension (Notion sources: same as the slug used under raw/notion/)
 indexed: YYYY-MM-DD       # mirror of sidecar's `indexed`
 url: <if applicable>      # mirror of sidecar's `url`
-source-type: text | pdf | transcript | image | other   # mirror of sidecar's `source-type`
-source-genre: <editorial label>                        # mirror of sidecar's `source-genre`
+source-type: text | pdf | transcript | image | other | notion   # mirror of sidecar's `source-type`
+source-genre: <editorial label>                                  # mirror of sidecar's `source-genre`
 ---
 ```
 
@@ -538,6 +546,8 @@ Roam, Obsidian as products).
 
 Triggered by either `/ingest <path>` (the slash command in `.claude/commands/ingest.md`) or natural language ("ingest this", "file this article", "process raw/foo.md"). Either way, the workflow below is identical.
 
+**For Notion pages** the trigger is `/ingest-notion <notion-url-or-id>` and the fetch + sidecar steps differ — see "Notion sources" below. From step 3 onward (discussing takeaways, writing the source-summary, updating entity/concept pages, `wiki/index.md`, `wiki/log.md`) the workflow is identical to the file-based path.
+
 **Pre-flight checks:**
 
 - If the trigger gives no path, ask the user which file to ingest.
@@ -598,6 +608,82 @@ Never silently overwrite a contradicted claim. The whole point of date-tagged ci
 | Clipped markdown article (`.md`) | Read tool, direct | no |
 | Pasted text or note (`.txt`, `.md`) | Read tool, direct | no |
 | PDF | Read tool with `pages` parameter (required for >10pp) | **yes** — write extracted text to `raw/info/<basename>.text.md` on first ingest |
+| Notion page | `mcp__claude_ai_Notion__notion-fetch` (Notion MCP) — body is flattened to markdown and written to `raw/notion/<slug>.md` | no — the cached `.md` under `raw/notion/` *is* the readable form |
+
+### Notion sources
+
+Notion pages are a second input track. Triggered by `/ingest-notion <notion-url-or-id>` (the slash command in `.claude/commands/ingest-notion.md`) or natural-language equivalents ("ingest this Notion page", "pull this from Notion"). The bulk of the workflow is identical to the file-based path — only the source-fetch and sidecar-creation steps differ, plus one extra step that keeps the Notion-side index page current. After those Notion-specific steps, hand off to step 3 of the base workflow.
+
+**Why a separate variant?** Notion pages live in the cloud, not under `raw/`. The LLM fetches them via the Notion MCP, caches the markdown body under `raw/notion/`, writes a sidecar at `raw/info/<slug>.info.md`, and (for traceability) appends an entry to a single **Notion index page** in the user's workspace. From step 3 onward the cached `raw/notion/<slug>.md` is treated like any other raw source — the wiki layer doesn't care that it came from Notion.
+
+**Bootstrap — the Notion index page**
+
+A single Notion page tracks every Notion document this wiki has ingested. Its location is stored in `notion-index.md` at the repo root (gitignored — machine-specific):
+
+```yaml
+---
+notion-index-page-id: <uuid>
+notion-index-page-url: https://www.notion.so/...
+---
+
+# Notion ingest index
+
+The Notion page at the URL above is the registry of every Notion document
+this wiki has ingested. Maintained by `/ingest-notion`.
+```
+
+If `notion-index.md` is missing or has an empty `notion-index-page-id`, **stop and ask the user for the URL of the Notion page they want to use as the index**. Write the file, then proceed. **Do not auto-create the Notion page** — the user picks where in their workspace it lives.
+
+**Pre-flight (Notion sources only):**
+
+- If `$ARGUMENTS` is empty, ask which Notion page to ingest.
+- Resolve `$ARGUMENTS` to a Notion page ID. Accepted forms: full Notion URL, bare UUID, or share link. If unresolvable, stop and ask.
+- Read `notion-index.md`. If missing or empty, run the bootstrap above.
+- Re-ingest detection: `grep -l "notion-page-id: <uuid>" raw/info/*.info.md`. If a sidecar with that page ID exists, this is a re-ingest — use the **overwrite path** in step 2 below.
+
+**Filename convention — slug is frozen at first ingest**
+
+One file per Notion page. Ever. The slug derived from the Notion title at first ingest becomes the page's permanent identifier in this wiki — `raw/notion/<slug>.md` and `raw/info/<slug>.info.md` and (downstream) `wiki/sources/<slug>.md`. **The slug never changes** — not when the Notion title is renamed, not on re-ingest, not on lint. This keeps every `[[slug|YYYY-MM-DD]]` citation across the wiki stable forever. The Notion title is just a *label* stored in the sidecar's `title:` field; it can drift independently of the slug.
+
+**Notion-specific steps (replacing steps 1–2 of the base workflow):**
+
+1. **Fetch the page via `mcp__claude_ai_Notion__notion-fetch`.** Capture: page title, body, URL, page ID, `last_edited_time`, and `created_time` if the MCP exposes it. Flatten the body to plain markdown (most Notion blocks have a direct markdown equivalent; for anything unrecognized, preserve as a fenced HTML block and note in the source-summary's "Notes" section later).
+
+2. **Write the cached source at `raw/notion/<slug>.md`:**
+
+   - **First ingest** (no sidecar matched the page ID in pre-flight): slugify the current Notion title (kebab-case, lowercase, ASCII-only), then write `raw/notion/<slug>.md` with the fetched body. If the chosen slug collides with an existing basename anywhere under `raw/`, append a short qualifier (`<slug>-notion`) and proceed.
+   - **Re-ingest** (sidecar exists for this page ID): use the **existing slug** from the matched sidecar, regardless of whether the current Notion title would slugify differently. **Overwrite** `raw/notion/<slug>.md` with the fresh body. No version suffixes, no second file, no rename. Exactly one cached file per Notion page exists when this step finishes.
+
+3. **Write or update the sidecar at `raw/info/<slug>.info.md`:**
+
+   ```yaml
+   ---
+   title: <current Notion page title>
+   url: <current Notion URL>
+   source-type: notion
+   source-genre: notion-page
+   notion-page-id: <uuid>
+   notion-last-edited: <Notion's last_edited_time, ISO 8601>
+   created: <Notion's created_time if exposed, else today>
+   indexed: <first-ingest date — preserved across re-ingests>
+   updated: <today>
+   ---
+   ```
+
+   On re-ingest, refresh `title`, `url`, `notion-last-edited`, and `updated`. Preserve `indexed` and `created` (they record first contact, not the latest). Bump `updated` even if the body came back byte-identical — the sidecar is "reviewed as of today".
+
+4. **Append an entry to the Notion index page** via `mcp__claude_ai_Notion__notion-update-page`. Bullet format:
+
+   ```
+   - <Page Title> — ingested YYYY-MM-DD → wiki/sources/<slug>.md
+     (link: <original notion url>)
+   ```
+
+   Append-only. Don't try to de-duplicate prior entries — a second ingest just adds a second line, and the most recent one is the canonical "current" status (mirrors how `wiki/log.md` works).
+
+**Hand off** to step 3 of the base workflow ("Discuss key takeaways with the user"). Everything from there — source-summary at `wiki/sources/<slug>.md`, entity/concept updates, `wiki/index.md`, `wiki/log.md` — is identical to file-based ingest.
+
+**Title drift is not a filename rename.** If the user renames the Notion page after ingest, the next `/ingest-notion <url>` refreshes the `title:` field in the sidecar but does **not** rename `raw/notion/<slug>.md` or `wiki/sources/<slug>.md`. The slug is the wiki's stable handle; the title is metadata. `/lint-notion` reports title drift as informational only.
 
 ## Query workflow
 
@@ -677,6 +763,8 @@ Triggered by `/lint` (the slash command in `.claude/commands/lint.md`) or a natu
 
 **Lint never modifies files on its own.** It surfaces findings and proposed fixes; the user confirms what to apply.
 
+**`/lint` is offline-only.** It never makes Notion network calls. Cloud freshness for ingested Notion pages (content drift, title drift, deletion, etc.) lives entirely in the separate `/lint-notion` workflow below — that command is user-invoked when Notion sources are suspected stale.
+
 ### Default checks
 
 Run all of these and produce one report section per check (even if empty — empty sections confirm the check ran).
@@ -704,6 +792,10 @@ Run all of these and produce one report section per check (even if empty — emp
    ```
 
    Also flag **orphan sidecars** — `.info.md` or `.text.md` files in `raw/info/` whose original no longer exists.
+
+   Nested sources under `raw/notion/` follow the same convention — sidecars stay flat at `raw/info/<basename>.info.md`. The `find` command above already picks them up; the basename-to-sidecar mapping doesn't change.
+
+   `notion-index.md` at the repo root is a config artifact, not a source — exempt from this check.
 
 ### Broken vs. missing-page dedup
 
@@ -795,3 +887,121 @@ Shape:
 ### Performance note
 
 At small scale (tens of pages) run checks sequentially. At larger scale, the file-system checks (broken wikilinks, missing sidecars) can run in parallel with the prose-reading checks (contradictions, missing cross-references) since they touch disjoint inputs.
+
+## Lint-notion workflow
+
+Triggered by `/lint-notion` (the slash command in `.claude/commands/lint-notion.md`) or natural-language equivalents ("lint notion sources", "check if Notion pages are stale", "audit notion freshness"). This is the **cloud-freshness pass** for Notion sources — distinct from the offline `/lint` above.
+
+**Like `/lint`, `/lint-notion` never modifies files.** It produces a report; the user fixes findings by re-running `/ingest-notion <url>` on the affected page (which overwrites the cached copy in place — see "Ingest workflow > Notion sources > Filename convention").
+
+**Two modes:**
+
+- **Inventory mode** (`/lint-notion` with no argument) — enumerate every sidecar under `raw/info/` with `source-type: notion` and check each against Notion.
+- **Single-page mode** (`/lint-notion <notion-url-or-id>`) — resolve the argument to a page ID, find its sidecar via `grep -l "notion-page-id: <uuid>" raw/info/*.info.md`, and check just that page. The escape hatch for "I edited one Notion doc, don't crawl my whole inventory."
+
+  If the page ID isn't found in any sidecar, stop and tell the user the page hasn't been ingested (suggest `/ingest-notion <url>` first).
+
+**Performance note.** Every Notion-sourced page is one Notion MCP `notion-fetch` call (metadata-only if the MCP supports it; full fetch otherwise). Inventory mode costs N round-trips at N ingested pages — non-trivial at scale. Single-page mode is one call. `/lint-notion` never runs on a schedule; it is purely user-invoked.
+
+### Drift modes — what's checked
+
+A locally-cached Notion source goes stale the moment the page is edited in Notion. The local copy is a snapshot, not a live mirror.
+
+| # | Drift mode | Detect via | Severity | Default? |
+|---|---|---|---|---|
+| 1 | **Content drift** — page body edited in Notion | current `last_edited_time` > sidecar's `notion-last-edited` | High — wiki claims cite a stale snapshot | **Yes** |
+| 2 | **Title drift** — page renamed | current Notion title ≠ sidecar `title` | Low — informational; slug is frozen so no filename changes | **Yes** (informational) |
+| 3 | **Deletion / archival** — page gone | fetch returns "not found" or `archived: true` | High — citation dangles | **Yes** |
+| 4 | **Permissions revoked** — integration lost access | fetch returns 401/403 | Medium — distinct from deletion; may resolve when the user re-grants access | **Yes** (separate category from deleted) |
+| 5 | **URL change** — page moved, slug regenerated | current URL ≠ sidecar `url`, but the page ID still resolves | Low — cosmetic; the stable ID means fetches still work | Opt-in (`--check urls`) |
+| 6 | **Index page drift** — registry page hand-edited | parse the index page; compare its bullet list against expected entries (one per Notion-sourced sidecar) | Low — append-only design tolerates this | Opt-in (`--check index`) |
+| 7 | **Wiki-side link rot from index page** — an entry's `→ wiki/sources/<slug>.md` no longer exists locally | for each index entry, check the referenced wiki file | Low | **Yes** (cheap, runs once on the index page itself) |
+
+**Out of scope** (future work, not in v1):
+
+- **DB-properties drift** — Notion pages can carry database properties (Status, Tags, Date) that change independently of the body. Would require snapshotting properties in the sidecar at ingest, which we don't do.
+- **Embedded sub-page / synced-block drift** — Notion pages can embed child databases, synced blocks, linked pages. Detecting drift in these requires walking the full block tree per page; too expensive.
+
+### Argument syntax
+
+```
+/lint-notion                            # inventory mode, default checks (1-4, 7)
+/lint-notion <notion-url-or-id>         # single-page mode, default checks 1-4
+/lint-notion --check <category>         # inventory mode, only the named category
+/lint-notion <url> --check <category>   # single-page, only the named category
+```
+
+`--check <category>` accepts: `content | title | deleted | inaccessible | urls | index | all`. Default (no flag) runs `content`, `title`, `deleted`, `inaccessible`, and in inventory mode also `index` (the wiki-side link rot check on entries of the index page). `urls` and the full `index` integrity check are opt-in.
+
+### Default checks (what runs without flags)
+
+For each ingested Notion source (inventory mode) or the single specified page (single-page mode):
+
+1. **Fetch metadata via `mcp__claude_ai_Notion__notion-fetch`.** Capture: current title, current URL, `last_edited_time`, `archived` flag (if exposed), and any error response (404, 401/403).
+
+2. **Content drift (#1):** if `last_edited_time` > sidecar's `notion-last-edited`, flag.
+
+3. **Title drift (#2):** if current Notion title ≠ sidecar `title`, flag as **informational** — slug does not change; the user can re-ingest to refresh the title metadata if they want.
+
+4. **Deletion / archival (#3):** if the fetch returned not-found or `archived: true`, flag.
+
+5. **Permissions revoked (#4):** if the fetch returned 401/403, flag (separate category from #3 — different recovery path).
+
+In inventory mode, after the per-page loop, also run:
+
+6. **Index-page link rot (#7):** read the Notion index page; parse the `→ wiki/sources/<slug>.md` references; for each, check the file exists locally. Flag any that don't.
+
+### Opt-in checks (only with `--check`)
+
+- **`--check urls`:** for each page where the fetch succeeded, compare current Notion URL to sidecar `url`. Flag drift. Cosmetic only — the page ID is stable.
+- **`--check index`:** parse the Notion index page; compare its bullet entries to the expected set (one bullet per Notion-sourced sidecar). Flag missing or extra entries. This is the integrity check for the index page itself, separate from #7.
+
+### Report format
+
+A single markdown report, one H2 per check category (even when empty — empty sections confirm the check ran).
+
+```markdown
+# Notion lint report — 2026-05-13
+
+Mode: inventory (N pages checked) | single-page (<slug>)
+
+## Content drift
+
+- `raw/info/foo.info.md`
+  - Notion `last_edited_time` 2026-05-13T09:14:00Z is newer than sidecar `notion-last-edited` 2026-05-11T18:00:00Z.
+  - **Suggested fix:** `/ingest-notion <url>` to overwrite the cached copy and refresh downstream wiki pages.
+
+## Title drift (informational)
+
+- `raw/info/foo.info.md`
+  - Sidecar `title:` "Initial Draft" → current Notion title "Initial Draft (revised)".
+  - **Suggested fix:** Re-run `/ingest-notion <url>` to refresh the metadata. The slug and filenames do not change.
+
+## Deleted or archived
+
+(none)
+
+## Permissions revoked
+
+(none)
+
+## Index-page link rot
+
+- Index entry references `wiki/sources/old-doc.md` — no such file in the wiki.
+  - **Suggested fix:** Either restore the wiki page, or manually remove the stale entry from the Notion index page.
+```
+
+### After producing the report
+
+1. **Do not apply fixes automatically.** Surface the report; wait for the user.
+2. Resolutions are user-initiated: re-run `/ingest-notion <url>` for stale content / title; decide manually how to handle deleted pages (keep as historical citation, strip, or wait).
+3. **Append a log entry** to `wiki/log.md` (canonical conventions in its HTML comment):
+
+   ```markdown
+   ## [YYYY-MM-DD] lint-notion | <inventory | <slug>>
+
+   - Checked: <N pages>
+   - Findings: <count by category, e.g. "2 content-drift, 1 title-drift (informational), 0 deleted, 0 inaccessible, 0 index-rot">
+   - Applied: <count of fixes the user approved (typically 0 — fixes go through /ingest-notion)>
+   - Notable: <one line on anything unusual>
+   ```

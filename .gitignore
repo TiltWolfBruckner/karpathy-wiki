@@ -9,3 +9,6 @@
 
 # Local Claude Code overrides (machine-specific)
 .claude/settings.local.json
+
+# Notion ingestor's pointer to the user's index page (workspace-specific)
+notion-index.md
