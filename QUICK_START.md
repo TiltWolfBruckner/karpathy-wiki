@@ -21,7 +21,7 @@ cd karpathy-wiki
    - **Files (articles, notes, PDFs):** drop them into `raw/`. Markdown clipped from the web works well — see the Obsidian Web Clipper tip below.
    - **Notion pages:** no local file needed — you'll pass the page URL in the next step.
 
-3. **Ingest a file:** `/ingest raw/<file>` (or say "ingest this"). Claude reads the source, creates a sidecar in `raw/info/`, pauses to discuss key takeaways with you, then writes a source-summary in `wiki/sources/`, updates relevant entity/concept pages with date-tagged citations (`[[source-slug|YYYY-MM-DD]]`), refreshes `wiki/index.md`, and appends to `wiki/log.md`.
+3. **Ingest a file:** `/ingest raw/<file>` (or say "ingest this"). Claude reads the document and updates the wiki content and links — you never need to directly edit the wiki yourself.
 
 4. **Ingest a Notion page:** `/ingest-notion <notion-url-or-id>`. On your first Notion ingest, you'll be asked for the URL of a Notion page to use as a registry — Claude will add a back-link entry there on every ingest. The registry pointer is stored in `notion-index.md` at the repo root (gitignored, machine-specific). Downstream flow is identical to a file ingest.
 
