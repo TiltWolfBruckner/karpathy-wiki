@@ -173,6 +173,22 @@ The reference design is `/Users/user/code/wiki/llm-wiki.md`. This PRD instantiat
 - [ ] **Lint clean after changes:** `python3 scripts/lint-wikilinks.py wiki/` produces 0 findings (no regressions from frontmatter edits).
 - [ ] Commit with message starting `US-012`
 
+### US-013: `/query` and `/lint` slash commands + future-work doc
+
+**Description:** As a user, I want slash commands for the two remaining primary operations so all three workflows (ingest/query/lint) have deterministic triggers and aren't dependent on natural-language phrasing. I also want the four deferred-from-v1 items captured in a future-work doc so design considerations don't drift before they're picked up.
+
+**Acceptance Criteria:**
+
+- [ ] `.claude/commands/query.md` exists. Thin delegation to `CLAUDE.md > Query workflow`. Reads `$ARGUMENTS` as the natural-language question; if empty, prompts the user instead of guessing.
+- [ ] `.claude/commands/lint.md` exists. Thin delegation to `CLAUDE.md > Lint workflow`. Interprets `$ARGUMENTS`: empty → default checks; contains `staleness` (case-insensitive) → default checks plus the staleness check. Any other argument → ask the user to clarify.
+- [ ] `CLAUDE.md > Query workflow` opening updated: trigger is now `/query <question>` OR natural language. The "No slash command in v1" sentence removed.
+- [ ] `CLAUDE.md > Lint workflow` opening updated: trigger is now `/lint [staleness]` OR natural language.
+- [ ] `tasks/future-work.md` created with H2-per-item structured stubs for the four deferred items (image-heavy source handling, CLI search at scale, Marp/matplotlib/canvas outputs, automation). Each stub has: **What** / **Why deferred** / **Open design questions** / **Rough scope**.
+- [ ] PRD non-goals updated: remove the "No `/query` or `/lint` slash commands" item. The four other deferred items stay (and are now cross-referenced to `tasks/future-work.md`).
+- [ ] PRD adds an FR noting all three primary operations now have slash commands.
+- [ ] Lint clean after changes: `python3 scripts/lint-wikilinks.py wiki/` produces 0 findings (no wiki/ content changes expected).
+- [ ] Commit with message starting `US-013`
+
 ## 4. Functional Requirements
 
 - FR-1: Repo root contains `CLAUDE.md`, `README.md`, `.gitignore`, `raw/`, `raw/info/`, `wiki/`, `tasks/`, `.claude/commands/`.
@@ -183,7 +199,7 @@ The reference design is `/Users/user/code/wiki/llm-wiki.md`. This PRD instantiat
 - FR-6: `index.md` is updated on every ingest. Entries grouped by page type, alphabetical within group, format `- [[slug]] — one-line summary`.
 - FR-7: `log.md` is append-only. Each entry begins with `## [YYYY-MM-DD] <op> | <title>` (parseable by `grep "^## \[" wiki/log.md`).
 - FR-8: Ingest, query, and lint workflows are each documented as numbered steps in `CLAUDE.md` and the LLM follows them deterministically.
-- FR-9: A `/ingest <path>` slash command exists at `.claude/commands/ingest.md` that invokes the ingest workflow. Natural-language triggers ("ingest this", "file this article") are also recognized.
+- FR-9: All three primary operations have project slash commands at `.claude/commands/` that invoke their respective workflow sections in `CLAUDE.md`: `/ingest <path>` → Ingest workflow; `/query <question>` → Query workflow; `/lint [staleness]` → Lint workflow. Each command file is a thin delegation; the workflow is the source of truth. Natural-language triggers for each operation are also recognized.
 - FR-10: Retrieval uses `wiki/index.md` first, then `grep`/`find` over `wiki/`. No embedding store, no external search service.
 - FR-11: Each original in `raw/` (excluding `raw/info/` and `raw/assets/`) has a corresponding `raw/info/<basename>.info.md` sidecar with YAML frontmatter `created`, `indexed`, `updated`, plus optional `title` / `url` / `source-type`. Sidecars are LLM-owned and updated on each ingest.
 - FR-12: PDFs in `raw/` are additionally extracted to `raw/info/<basename>.text.md` on first ingest using Read's `pages` parameter (required for files >10pp). Subsequent reads and `grep` target the extracted `.text.md`. The original PDF is never modified.
@@ -198,12 +214,11 @@ The reference design is `/Users/user/code/wiki/llm-wiki.md`. This PRD instantiat
 
 ## 5. Non-Goals (Out of Scope for v1)
 
-- No CLI search tool (no `qmd`, no embedding index, no MCP search server). Pure `index.md` + `grep`.
-- No `/query` or `/lint` slash commands in v1. Only `/ingest`. Query and lint are triggered in natural language.
+- No CLI search tool (no `qmd`, no embedding index, no MCP search server). Pure `index.md` + `grep`. See `tasks/future-work.md` for the design considerations when this is picked up.
 - No domain-specific schema. The schema is general-purpose; any subject-specific page types are added by the user later.
-- No image-heavy source handling. Text and PDFs only in v1; the two-pass image workflow is deferred.
-- No Marp slide output, no matplotlib charts, no canvas outputs. Markdown answers only.
-- No automation (no hooks, no cron, no background ingest). All operations are user-initiated.
+- No image-heavy source handling. Text and PDFs only in v1; the two-pass image workflow is deferred. See `tasks/future-work.md`.
+- No Marp slide output, no matplotlib charts, no canvas outputs. Markdown answers only. See `tasks/future-work.md`.
+- No automation (no hooks, no cron, no background ingest). All operations are user-initiated. See `tasks/future-work.md`.
 - No multi-user / collaboration features. Single-user, local-only.
 - No web UI, no custom Obsidian plugins. Standard Obsidian + Claude Code only.
 - No pre-population of the wiki with content. Empty wiki is a valid v1 deliverable.
@@ -260,3 +275,9 @@ The following decisions were made during PRD planning and are baked into the FRs
 - **`source-type` vs `source-genre` split:** kept the `source-type` field but narrowed it to broad structural kinds (text/pdf/transcript/image/other) and added a new free-form `source-genre` for the editorial label (article/spec/design-doc/etc.). Two fields rather than one extended enum so machine-checking the structural kind doesn't constrain the editorial vocabulary. Existing data migrated.
 - **Index-summary rule documented per page type.** Section name is named explicitly per type rather than left as judgment: Abstract / Summary / Definition / Tradeoffs / Scope. ~120-char budget; first sentence of the named section is the canonical source. Abridgement OK; substantive paraphrasing avoided.
 - **Ingest step-3 pause stays canonical.** The US-008 validation skip was a one-off at the user's explicit direction, not a workflow mode. CLAUDE.md now makes this unambiguous so non-interactive batch ingests don't become an implicit default.
+
+### Added in US-013 round (`/query` + `/lint` slash commands; future-work doc)
+
+- **`/lint` accepts a `staleness` argument** on a single command file, rather than splitting into a separate `/lint-staleness` command. Argument-parsing is loose (case-insensitive, anywhere in the string) so natural shapes like `/lint staleness`, `/lint with staleness`, and `/lint staleness please` all work. Unknown non-empty arguments make the command stop and ask, rather than silently defaulting.
+- **Future-work doc uses structured stubs**, not a flat list. Each deferred item has What / Why deferred / Open design questions / Rough scope. Reason: when one of these is picked up later, the design considerations are fresh in the doc rather than re-derived from scratch.
+- **Non-goals cross-reference `tasks/future-work.md`** for the four items that have design stubs — search-at-scale (qmd), image-heavy sources, Marp/charts, automation. Non-goals like multi-user, web UI, and migrations stay non-goals without future-work stubs (they're not on the radar).

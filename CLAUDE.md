@@ -601,7 +601,7 @@ Never silently overwrite a contradicted claim. The whole point of date-tagged ci
 
 ## Query workflow
 
-Triggered by any natural-language question against the wiki. No slash command in v1. Same workflow whether the question is a one-liner ("when did Bush propose the Memex?") or open-ended ("how do LLM-maintained wikis differ from RAG?").
+Triggered by `/query <question>` (the slash command in `.claude/commands/query.md`) or any natural-language question against the wiki. Same workflow either way, whether the question is a one-liner ("when did Bush propose the Memex?") or open-ended ("how do LLM-maintained wikis differ from RAG?").
 
 If the question is genuinely outside the wiki's scope (small talk, unrelated tasks), answer normally — don't force a wiki retrieval pass for everything.
 
@@ -673,7 +673,7 @@ If the wiki has nothing relevant:
 
 ## Lint workflow
 
-Triggered by natural-language request: "lint the wiki", "run a lint pass", "check the wiki for issues". For the opt-in staleness check, the user invokes "lint with staleness" or "lint and check for old pages".
+Triggered by `/lint` (the slash command in `.claude/commands/lint.md`) or a natural-language request: "lint the wiki", "run a lint pass", "check the wiki for issues". For the opt-in staleness check, the user invokes `/lint staleness` or natural-language equivalents like "lint with staleness" / "lint and check for old pages".
 
 **Lint never modifies files on its own.** It surfaces findings and proposed fixes; the user confirms what to apply.
 
