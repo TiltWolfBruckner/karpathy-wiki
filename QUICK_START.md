@@ -34,8 +34,9 @@ cd karpathy-wiki
 
 ## Tips
 
-- **Scale.** The `index.md` + `grep` retrieval that `/query` uses works comfortably at moderate scale — roughly **~100 sources and a few hundred wiki pages**. Beyond that, performance starts to degrade and you'll want a real search index. The reference design suggests [qmd](https://github.com/tobi/qmd) (local hybrid BM25 + vector search over markdown, with both a CLI and an MCP server) as a natural fit when you outgrow grep. The deferred design notes live in `tasks/future-work.md`.
+- **Scale.** The `index.md` + `grep` retrieval that `/query` uses works comfortably at moderate scale — roughly **~100 sources and a few hundred wiki pages**. Beyond that, performance starts to degrade and you'll want a real search index. (future enhancement outlined in llm-wiki.md)
 
 - **`CLAUDE.md` co-evolves with use.** Treat it as configuration, not stone. As you discover what conventions work for your domain — naming patterns, page-type tweaks, lint rules that matter, ingest preferences — update `CLAUDE.md` to match. The schema is *meant* to drift; it's how the system adapts to the shape of *your* knowledge base. Ask Claude to help you refactor it when you notice friction.
 
+**OPTIONAL**
 - **Use Obsidian as the viewer.** Open the repo as an Obsidian vault — wikilinks, backlinks, and the graph view all work out of the box. The graph view is the fastest way to see the shape of your wiki: hubs, orphans, clusters. Per-vault state lives in `.obsidian/` and is already gitignored. The [Obsidian Web Clipper](https://obsidian.md/clipper) browser extension is the easiest way to get web articles into `raw/` as clean markdown.
