@@ -1,3 +1,6 @@
+Create side cars for image files, with links back to source/embedded doc, descriptions of images, etc
+
+[Done]
 Add a header to all docs in raw that has common frontmatter
 - Date created
 - last date indexed
